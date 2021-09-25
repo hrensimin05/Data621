@@ -1,0 +1,314 @@
+---
+title: "DATA 621 Howewok 1"
+date: "9/24/2021"
+output:
+  pdf_document: default
+---
+Prepared by Critical Thinking Group 3 - Dominika Markowska-Desvallons and Shana Green 
+
+
+# Introduction 
+In this homework assignment, you will explore, analyze and model a data set containing approximately 2200
+records. Each record represents a professional baseball team from the years 1871 to 2006 inclusive. Each record
+has the performance of the team for the given year, with all of the statistics adjusted to match the performance of
+a 162 game season.
+
+### Objective
+
+The objective is to build a multiple linear regression model on the training data to predict the number of wins for the given team. We can only use the variables provided (or variables that we will derive from the variables provided)
+
+
+# Data  Exploration
+### Dataset
+The moneyball training set contains 17 columns - including the target variable “TARGET_WINS” - and 2276 rows, covering baseball team performance statistics from the years 1871 to 2006 inclusive. The data has been adjusted to match the performance of a typical 162 game season. The data-set was entirely numerical and contained no categorical variables.
+There was also focus on all the variables to see which if any have missing data. 
+
+```{r,echo=FALSE,, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(visdat)
+```
+```{r,echo=FALSE}
+training <- read.csv("https://raw.githubusercontent.com/hrensimin05/Data621/main/moneyball-training-data.csv")
+test <- read.csv("https://raw.githubusercontent.com/hrensimin05/Data621/main/moneyball-evaluation-data.csv")
+glimpse(training)
+```
+
+Getting min, max, median, mean, 1st quarter, 3rd quater.
+```{r,echo=FALSE}
+summary(training)
+```
+
+Summarizing there are many variables that appeared with unusually extreme values such as TEAM_PITCHING_H and 30132.0. We need to look much closer at the data and analyze the extreme values and get more information regarding that.
+In histograms below, the data shows multiple graphs  with right skews while only a few have left-skew.
+```{r,echo=FALSE}
+training%>%
+  gather(variable, value, TARGET_WINS:TEAM_FIELDING_DP)%>%
+  ggplot(., aes(value)) + 
+  geom_density(fill = "blue", color="blue") + 
+  facet_wrap(~variable, scales ="free", ncol = 4) +
+  labs(x = element_blank(), y = element_blank())
+```
+
+ The boxplots show the spread of data within the dataset, and show various outliers. As seen in the graph below, TEAM_PITCHING_H seems to have the highest spread with the most outliers.
+
+
+```{r,echo=FALSE}
+boxplot(training,xlab="Predictor")
+```
+
+
+Check missing data
+```{r}
+vis_miss(training)
+```
+
+```{r}
+mb_cor <- cor(training)
+round(mb_cor, 3)
+```
+check correlation
+```{r}
+M<-cor(training)
+corrplot(M, method="number")
+```
+
+# DATA PREPARATION 
+
+Working with outliers
+```{r}
+repo = function(x) { 
+    quantiles <- quantile( x, c(0.5,.95 ) )
+    x[ x < quantiles[1] ] <- quantiles[1]
+   
+    x[ x > quantiles[2] ] <- quantiles[2]
+    return(x)
+}
+   
+training$TEAM_PITCHING_H <- repo(training$TEAM_PITCHING_H)
+```
+
+Woking with 'NA'
+
+1.There are 2085 'NA' in the colums of TEAM_BATTING_HBP which is close to 92%. It should not be included in the analysis. Also, replacing it with a different numbers would not be a great and effective approach. It is rational to removed the variable from our report. Another variable -  TEAM_BASERUN_CS has about 34% missing values, which also is going to be removed. Other variable with missing data is going to be replace with median values calculations. 
+
+
+index column to be removed
+```{r}
+t1 <- training[, -c(1)]
+```
+
+
+removing TEAM_BATTING_HBP column
+```{r}
+t2 <- t1[, -c(10)]
+```
+removing TEAM_BASERUN_CS column
+```{r}
+t3 <- t2[, -c(9)]
+```
+
+Remove Collinearity
+
+Observing the two variables TEAM_BATTING_HR and TEAM_PITCHING_HR, we could notice that they  are collinear with strong correlation of 97%. We decided to remove the variable TEAM_PITCHING_HR to avoid collinearity in our analysis.
+
+```{r}
+t4 <- t3[, -c(9)]
+```
+
+
+replacing missing values with their median values
+```{r}
+t4$TEAM_PITCHING_SO[is.na(training$TEAM_PITCHING_SO)] <- median(t4$TEAM_PITCHING_SO, na.rm = TRUE)
+t4$TEAM_BATTING_SO[is.na(training$TEAM_BATTING_SO)] <- median(t4$TEAM_BATTING_SO, na.rm = TRUE)
+t4$TEAM_BASERUN_SB[is.na(training$TEAM_BASERUN_SB)] <- median(t4$TEAM_BASERUN_SB, na.rm = TRUE)
+t4$TEAM_FIELDING_DP[is.na(training$TEAM_FIELDING_DP)] <- median(t4$TEAM_FIELDING_DP, na.rm = TRUE)
+```
+
+```{r}
+glimpse(t4)
+```
+
+Transforming our variables
+Again examinaniting our data we notice that the density plots from data exploration section shows  that the variables TEAM_BATTING_HR, TEAM_PITCHING_HR, TEAM_BATTING_SO and TEAM_PITCHING_SO can not be assumed normal, variable TEAM_PITCHING_HR needed to be removed due to multicollinearity. 
+Using log transformation, we will transform the rest of three variable to be able assume normal. 
+
+```{r}
+ttraining <- t4
+ttraining$TEAM_BATTING_HR_tt <- log(ttraining$TEAM_BATTING_HR +1)
+ttraining$TEAM_BATTING_SO_tt <- log(ttraining$TEAM_BATTING_SO +1)
+ttraining$TEAM_PITCHING_SO_tt <- log(ttraining$TEAM_PITCHING_SO +1)
+```
+
+
+
+Creating additional variables 
+  
+  
+TEAM_BATTING_H includes TEAM_BATTING_1B, TEAM_BATTING_2B, TEAM_BATTING_3B, TEAM_BATTING_HR,  we decided to use simple arithmetic and  subtract a new variables (TEAM_BATTING_1B:single base hits )from TEAM_BATTING_H.
+```{r}
+df_cl <- ttraining
+df_cl <- df_cl %>% mutate(TEAM_BATTING_1B = TEAM_BATTING_H - TEAM_BATTING_2B - TEAM_BATTING_3B - TEAM_BATTING_HR) 
+glimpse(df_cl)
+```
+
+Just verifying data after clean up.  Our new dataset is noticeable better organized and simplified.  
+
+```{r}
+summary(df_cl)
+```
+
+```{r}
+boxplot(df_cl,xlab="Predictor")
+```
+```{r}
+vis_miss(df_cl)
+```
+
+
+
+## BUILDING MODELS  
+
+
+Backward elimination
+
+Finding this concept recently we wanted to use it building our models and it is also very important that we select only those features or predictors which are necessary.
+What we learn is that the Backward Elimination operator is a nested operator i.e. it has a subprocess. The subprocess of the Backward Elimination operator must always return a performance vector. The Backward Elimination operator starts with the full set of attributes and, in each round, it removes each remaining attribute of the given data set. For each removed attribute, the performance is estimated using the inner operators, e.g. a cross-validation. Only the attribute giving the least decrease of performance is finally removed from the selection. Then a new round is started with the modified selection. 
+    
+
+MODEL 1 - this is going to be a model with columns as features
+```{r}
+model1 <- lm (TARGET_WINS ~   . , data=df_cl)
+model1_dec<- step (model1, direction = "backward")     
+plot(model1_dec)
+```    
+
+```{r}    
+summary(model1_dec)  
+```
+    
+MODEL 2- Building a model only with meaningful columns as featueres from model1.    
+```{r}
+model2 <- lm (TARGET_WINS ~ TEAM_BATTING_H + TEAM_BATTING_3B + TEAM_BATTING_HR + TEAM_BASERUN_SB + TEAM_PITCHING_BB + TEAM_PITCHING_SO + TEAM_FIELDING_E + TEAM_FIELDING_DP + TEAM_BATTING_SO_tt + TEAM_PITCHING_SO_tt, data=df_cl)
+model2_dec<- step (model2, direction = "backward")
+plot(model2_dec)
+```
+```{r}
+summary(model2_dec)
+```
+MODEL3 - building  a model with 5 high correlation columns 
+```{r}
+cor <- sapply(df_cl, cor, y=df_cl$TARGET_WINS)
+m <- (rank(-abs(cor)) <= 6 )
+pred <- df_cl[, m]
+pred <- subset(pred, select = c(-TARGET_WINS) )
+summary(pred)
+
+```
+Stepwise backward regression    
+```{r}    
+model3 <- lm (TARGET_WINS ~     TEAM_BATTING_H + TEAM_BATTING_2B + TEAM_BATTING_BB + TEAM_BATTING_HR_tt + TEAM_BATTING_1B , data=df_cl)
+model3_dec<- step (model3, direction = "backward")  
+plot(model3_dec)
+```        
+```{r}
+summary(model3_dec)
+```
+
+## SELECT MODELS
+
+Model 1 yield a slightly larger r square value, showing a slightly better possible fit.  Although model 3 has a relatively larger F statistic even with only 5 predictors, we believe cover more variable is important to predict the winning situation for the Moneyball game.  Based on the above stats, Model 1 with all the columns as features is the best fit. 
+In order to use model 1 on the evaluation data. Firstly, we overview the data. Secondly, we did data cleaning, transformation, and other manipulation which is exactly the same as we did for train data.
+```{r}
+glimpse(test)
+```
+ 
+#### Model Application
+replacing with outliners
+```{r}
+rep_out = function(x) { 
+    quantiles <- quantile( x, c(0.5,.95 ) )
+    x[ x < quantiles[1] ] <- quantiles[1]
+   
+    x[ x > quantiles[2] ] <- quantiles[2]
+    return(x)
+}
+   
+test$TEAM_PITCHING_H <- rep_out(test$TEAM_PITCHING_H)
+```  
+remove the index column
+```{r}
+test1 <- test[, -c(1)]
+```
+remove the TEAM_BATTING_HBP column
+```{r}
+test2 <- test1[, -c(10)]
+```
+remove the column of TEAM_BASERUN_CS
+```{r}
+test3 <- test2[, -c(9)]
+```
+
+
+Again, we needed to remove Collinearity, because the variable TEAM_BATTING_HR and TEAM_PITCHING_HR are on the same line with correlation of 97%. We will remove the var TEAM_PITCHING_HR to handle our problem. 
+
+```{r}
+test4 <- test3[, -c(9)]
+```
+
+
+Next step was to replace with the missing values with their median one. 
+```{r}
+test4$TEAM_PITCHING_SO[is.na(test$TEAM_PITCHING_SO)] <- median(test4$TEAM_PITCHING_SO, na.rm = TRUE)
+test4$TEAM_BATTING_SO[is.na(test$TEAM_BATTING_SO)] <- median(test4$TEAM_BATTING_SO, na.rm = TRUE)
+test4$TEAM_BASERUN_SB[is.na(test$TEAM_BASERUN_SB)] <- median(test4$TEAM_BASERUN_SB, na.rm = TRUE)
+test4$TEAM_FIELDING_DP[is.na(test$TEAM_FIELDING_DP)] <- median(test4$TEAM_FIELDING_DP, na.rm = TRUE)
+```
+
+
+
+Transforming the variables
+
+  Again, after looking closer at our data test we noticed that the TEAM_BATTING_HR, TEAM_PITCHING_HR, TEAM_BATTING_SO and TEAM_PITCHING_SO and their behavior is not looking normal and it is an example od multicollinearity, that is why we excluded TEAM_PITCHING_HR due to the problem, and with rest we will be using log to assume normality. 
+
+```{r}
+var_tran <- test4
+var_tran$TEAM_BATTING_HR_tt <- log(var_tran$TEAM_BATTING_HR +1)
+var_tran$TEAM_BATTING_SO_tt <- log(var_tran$TEAM_BATTING_SO +1)
+var_tran$TEAM_PITCHING_SO_tt <- log(var_tran$TEAM_PITCHING_SO +1)
+```
+
+
+
+
+Lastly we are going to create a new needed variables, because  TEAM_BATTING_H includes TEAM_BATTING_1B, TEAM_BATTING_2B, TEAM_BATTING_3B, TEAM_BATTING_HR,  we decided to use simple arithmetic and  subtract a new variables (TEAM_BATTING_1B:single base hits )from TEAM_BATTING_H.
+
+```{r}
+testdf_cl <- test_t
+testdf_cl <- df_cl %>% mutate(TEAM_BATTING_1B = TEAM_BATTING_H - TEAM_BATTING_2B - TEAM_BATTING_3B - TEAM_BATTING_HR) 
+glimpse(testdf_cl)
+```
+```{r}
+vis_miss(testdf_cl)
+```
+
+
+In our opinion by using our first model - Model1 we are able to predict the dependent var for our testing data set . 
+
+
+```{r}
+test5 <- transform(testdf_cl)
+test5["BATTING_1B"] <- NA
+test5$BATTING_1B = test5$TEAM_BATTING_H - test5$TEAM_BATTING_HR - test5$TEAM_BATTING_3B - test5$TEAM_BATTING_2B
+pred<- predict (model1_dec, newdata=test5 )
+summary (pred)
+```
+
+
+## References
+A Modern Approach to Regression with R: Simon Sheather
+Linear Models with R: Julian Faraway.
+Source: Backward Elimination - Stepwise Regression with R, Dragonfly Statistics, https://www.youtube.com/watch?v=0aTtMJO-pE4.  Oct 18, 2017.  11 minute video.
+
