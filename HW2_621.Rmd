@@ -1,0 +1,142 @@
+---
+title: "HW2_data621"
+author: "Dominika Markowska-Desvallons"
+date: "10/9/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+DATA 621 
+
+Homework 2 
+Shana Green and Dominika Markowska-Desvallons
+10/10/2021
+
+```{r}
+library(tidyverse)
+```
+
+1. Download the classification output data set (attached in Blackboard to the assignment).
+```{r}
+
+df <- read.csv("https://raw.githubusercontent.com/hrensimin05/Data621/main/classification-output-data%20(1).csv")
+
+summary(df)
+
+```
+
+
+2. The data set has three key columns we will use:
+- class: the actual class for the observation
+- scored.class: the predicted class for the observation (based on a threshold of 0.5)
+- scored.probability: the predicted probability of success for the observation
+Use the table() function to get the raw confusion matrix for this scored dataset. Make sure you understand
+the output. In particular, do the rows represent the actual or predicted class? The columns?
+
+
+```{r}
+df%>%select(scored.class, class) %>%
+  table()
+
+```
+
+
+
+
+3. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the accuracy of the predictions.
+$$Accuracy=\frac{TP+TN}{TP+FP+TN+FN}$$
+
+```{r}
+fun<- function(x){
+  c<- table(x$class,  x$scored.class)
+  acc <- (c[1,1]+c[2,2])/sum(c)
+  return(acc)
+}
+
+(acc<-fun(df))
+
+
+```
+
+
+4. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the classification error rate of the predictions.
+
+$$Classification\hspace{.1cm}Error\hspace{.1cm}Rate=\frac{FP+FN}{TP+FP+TN+FN}$$
+Verify that you get an accuracy and an error rate that sums to one.
+
+```{r}
+fun2<- function(x) {
+    c <- table(x$class, x$scored.class)
+    err <- (c[1, 2] + c[2, 1]) / sum(c)
+    return(err)
+}
+(err <- fun2(df))
+
+
+```
+
+
+```{r}
+fun(df) + fun2(df)
+```
+
+5. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the precision of the predictions.
+$$Precision=\frac{TP}{TP+FP}$$
+
+```{r}
+p <- function(x) {
+    c<- table(x$class, x$scored.class)
+    precision <- c[2, 2] / (c[2, 2] +c[1, 2])
+    return(precision)
+}
+(precision <- p(df))
+
+```
+6. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the sensitivity of the predictions. Sensitivity is also known as recall.
+$$\text{Sensitivity} = \frac{TP}{TP + FN}$$
+```{r}
+sens <-  function(x) {
+    c <- table(factor(x$class, levels = c(0, 1)),
+                  factor(x$scored.class, levels = c(0, 1)))
+    ss <- c[2, 2] / (c[2, 2] + c[2, 1])
+    return(ss)
+}
+(ss <- sens(df))
+
+```
+
+
+
+7. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the specificity of the predictions.
+$$\text{Specificity} = \frac{TN}{TN + FP}$$
+
+
+```{r}
+fun_spec<- function(x) {
+   
+    c <- table(factor(x$class, levels = c(0, 1)), 
+                  factor(x$scored.class, levels = c(0, 1)))
+    s <- c[1, 1] / (c[1, 1] + c[1, 2])
+    return(s)
+}
+(s <- fun_spec(df))
+
+```
+
+
+8. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the F1 score of the predictions.
+$$F1\hspace{.1cm}Score=\frac{2\times Precision\times Sensitivity}{Precision+Sensitivity}$$
+
+```{r}
+score <- function(x){
+  (2*p(x)*sens(x))/(p(x)+sens(x))
+}
+
+score(df)
+```
