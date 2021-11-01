@@ -1,0 +1,166 @@
+---
+title: "DATA 621 Homework 3"
+author: "Critical Thinking Group 3 - Dominika Markowska-Desvallons & Shana Green"
+date: "Due 10/31/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Introduction
+
+In this homework assignment, you will explore, analyze and model a data set containing information on crime for various neighborhoods of a major city. Each record has a response variable indicating whether or not the crime rate is above the median crime rate (1) or not (0).
+
+### Objective
+
+Your objective is to build a binary logistic regression model on the training data set to predict whether the neighborhood will be at risk for high crime levels. You will provide classifications and probabilities for the evaluation data set using your binary logistic regression model. You can only use the variables given to you (or variables that you derive from the variables provided). Below is a short description of the variables of interest in the data set:
+
+
+* **zn**: proportion of residential land zoned for large lots (over 25000 square feet) (predictor variable) 
+* **indus**: proportion of non-retail business acres per suburb (predictor variable)
+* **chas**: a dummy var. for whether the suburb borders the Charles River (1) or not (0) (predictor variable)
+* **nox**: nitrogen oxides concentration (parts per 10 million) (predictor variable)
+* **rm**: average number of rooms per dwelling (predictor variable)
+* **age**: proportion of owner-occupied units built prior to 1940 (predictor variable)
+* **dis**: weighted mean of distances to five Boston employment centers (predictor variable)
+* **rad**: index of accessibility to radial highways (predictor variable)
+* **tax**: full-value property-tax rate per $10,000 (predictor variable)
+* **ptratio**: pupil-teacher ratio by town (predictor variable)
+* **black**: 1000($B_k - 0.63)^2$ where $B_k$ is the proportion of blacks by town (predictor variable)
+* **lstat**: lower status of the population (percent) (predictor variable)
+* **medv**: median value of owner-occupied homes in $1000s (predictor variable)
+* **target**: whether the crime rate is above the median crime rate (1) or not (0) (response variable)
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+
+```
+
+```{r,echo=FALSE, message=FALSE}
+library(tidyverse)
+library(caret)
+library(e1071)
+library(pracma)
+library(pROC)
+library(psych)
+library(kableExtra)
+library(Hmisc)
+library(VIF)
+library(FactoMineR)
+library(corrplot)
+library(purrr)
+library(dplyr)
+library(MASS)
+library(mice)
+```
+
+```{r,echo=FALSE, message=FALSE}
+train <- read.csv("https://raw.githubusercontent.com/sagreen131/DATA-621/main/crime-training-data_modified.csv")
+
+eval <- read.csv("https://raw.githubusercontent.com/sagreen131/DATA-621/main/crime-evaluation-data_modified.csv")
+
+```
+
+## Dataset
+
+```{r,echo=FALSE, message=FALSE}
+train %>%  tibble(head(10))
+```
+
+
+### Structure of Dataset
+
+```{r,echo=FALSE, message=FALSE}
+glimpse(train)
+```
+
+The train dataset contains 466 cases. Looking at the given variables, we can see that **chas** and **target** are dummy variables, based on the values given. 
+
+### Summary Statistic
+
+```{r,echo=FALSE, message=FALSE}
+train %>%
+    summary(train)
+```
+
+After reviewing the summary of the train dataset, we observed no missing NA values. 
+
+# Data Exploration
+
+We wanted to take a closer look at the target variable to see if the crime rate was indeed above the median crime rate. 
+
+```{r,echo=FALSE, message=FALSE}
+tf <- table(train$target) %>% data.frame()
+
+ggplot(tf, aes(x = Var1, y = Freq, fill = Var1)) + geom_bar(stat = "identity") + scale_fill_manual(name = "Crime?", labels = c("No", "Yes"),values=c("green", "red")) + geom_text(aes(label=Freq), vjust=1.6, color="white", size=3.5) + ggtitle("Is the crime rate above the median crime rate?")
+
+```
+
+According to the histogram presented, the crime rate was not above the median crime rate. 
+
+## Histogram and Box Plots
+
+```{r,echo=FALSE, message=FALSE}
+par(mfrow=c(3,3))
+    for (i in 3:12) {
+      hist(train[,i],main=names(train[i]),51)
+        boxplot(train[,i], main=names(train[i]), type="l",horizontal = TRUE)
+        boxplot(train$target,train[,i], main=paste(names(train[i])) , horizontal = TRUE,col=(c("blue","red")))
+    }
+```
+
+Some of the independent variables appear to have a normal distribution, while others are skewed. The third column displayed in the box plots compared each independent variable to the **target**
+response variable. 
+
+## Correlation Plot
+
+We conducted a correlation plot to check for collinearity. 
+
+```{r, echo=FALSE,message=FALSE}
+cor_mx = cor(train,use="pairwise.complete.obs", method = "pearson")
+corrplot(cor_mx, method = "color", 
+         type = "upper", order = "original", number.cex = .7,
+         addCoef.col = "black",
+         tl.col = "black", tl.srt = 90,
+         diag = TRUE)
+```
+
+
+Certain variables relate to each other differently, and some actually correlated stronger than others. If we look at the target column, we can see how the independent variables correlate with the response variable. It appears that **indus**,   **nox**, **age**, **rad**, **tax**, **ptratio**, and **lstat** have a positive correlation, whereas **zn**, **dis**, and **medv** have negative correlation.  
+
+
+# Data Preparation
+
+We initially thought it would be best not to perform any transformations, since there are no concentrations as a strong predictor of crime. However, we transformed the **chas** and **target** variables to factors since the columns are dummy variables.
+
+
+```{r}
+levels(train$target) = make.names(levels(factor(train$target)))
+
+train$chas = as.factor(train$chas)
+
+eval$chas= as.factor(eval$chas)
+eval$target = NULL
+
+set.seed(12)
+train1 = train %>% sample_n(., 40) 
+train1$chas = as.factor(train1$chas)
+
+set.seed(30)
+train2 = train %>% sample_n(., 40) 
+train2$chas = as.factor(train2$chas)
+
+set.seed(50)
+train3 = train %>% sample_n(., 40) 
+train3$chas = as.factor(train3$chas)
+```
+
+
+# Build Models
+
+
+
+
+
+
+
