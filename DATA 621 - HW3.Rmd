@@ -1,0 +1,247 @@
+---
+title: "DATA 621 Homework 3"
+author: "Critical Thinking Group 3 - Dominika Markowska-Desvallons & Shana Green"
+date: "Due 10/31/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Introduction
+
+In this homework assignment, you will explore, analyze and model a data set containing information on crime for various neighborhoods of a major city. Each record has a response variable indicating whether or not the crime rate is above the median crime rate (1) or not (0).
+
+### Objective
+
+Your objective is to build a binary logistic regression model on the training data set to predict whether the neighborhood will be at risk for high crime levels. You will provide classifications and probabilities for the evaluation data set using your binary logistic regression model. You can only use the variables given to you (or variables that you derive from the variables provided). Below is a short description of the variables of interest in the data set:
+
+
+* **zn**: proportion of residential land zoned for large lots (over 25000 square feet) (predictor variable) 
+* **indus**: proportion of non-retail business acres per suburb (predictor variable)
+* **chas**: a dummy var. for whether the suburb borders the Charles River (1) or not (0) (predictor variable)
+* **nox**: nitrogen oxides concentration (parts per 10 million) (predictor variable)
+* **rm**: average number of rooms per dwelling (predictor variable)
+* **age**: proportion of owner-occupied units built prior to 1940 (predictor variable)
+* **dis**: weighted mean of distances to five Boston employment centers (predictor variable)
+* **rad**: index of accessibility to radial highways (predictor variable)
+* **tax**: full-value property-tax rate per $10,000 (predictor variable)
+* **ptratio**: pupil-teacher ratio by town (predictor variable)
+* **black**: 1000($B_k - 0.63)^2$ where $B_k$ is the proportion of blacks by town (predictor variable)
+* **lstat**: lower status of the population (percent) (predictor variable)
+* **medv**: median value of owner-occupied homes in $1000s (predictor variable)
+* **target**: whether the crime rate is above the median crime rate (1) or not (0) (response variable)
+
+
+
+```{r,echo=FALSE, message=FALSE}
+library(tidyverse)
+library(caret)
+library(e1071)
+library(pracma)
+library(pROC)
+library(psych)
+library(kableExtra)
+library(Hmisc)
+library(VIF)
+library(FactoMineR)
+library(corrplot)
+library(purrr)
+library(dplyr)
+library(MASS)
+library(mice)
+```
+
+```{r,echo=FALSE, message=FALSE}
+train <- read.csv("https://raw.githubusercontent.com/sagreen131/DATA-621/main/crime-training-data_modified.csv")
+
+eval <- read.csv("https://raw.githubusercontent.com/sagreen131/DATA-621/main/crime-evaluation-data_modified.csv")
+
+```
+
+## Dataset
+
+```{r,echo=FALSE, message=FALSE}
+train %>%  tibble(head(10))
+```
+
+
+### Structure of Dataset
+
+```{r,echo=FALSE, message=FALSE}
+glimpse(train)
+```
+
+The train dataset contains 466 cases. Looking at the given variables, we can see that **chas** and **target** are dummy variables, based on the values given. 
+
+### Summary Statistic
+
+```{r,echo=FALSE, message=FALSE}
+train %>%
+    summary(train)
+```
+
+After reviewing the summary of the train dataset, we observed no missing NA values. 
+
+# Data Exploration
+
+We wanted to take a closer look at the target variable to see if the crime rate was indeed above the median crime rate. 
+
+```{r,echo=FALSE, message=FALSE}
+tf <- table(train$target) %>% data.frame()
+
+ggplot(tf, aes(x = Var1, y = Freq, fill = Var1)) + geom_bar(stat = "identity") + scale_fill_manual(name = "Crime?", labels = c("No", "Yes"),values=c("green", "red")) + geom_text(aes(label=Freq), vjust=1.6, color="white", size=3.5) + ggtitle("Is the crime rate above the median crime rate?")
+
+```
+
+According to the histogram presented, the crime rate was not above the median crime rate. 
+
+## Histogram and Box Plots
+
+```{r,echo=FALSE, message=FALSE}
+par(mfrow=c(3,3))
+    for (i in 3:12) {
+      hist(train[,i],main=names(train[i]),51)
+        boxplot(train[,i], main=names(train[i]), type="l",horizontal = TRUE)
+        boxplot(train$target,train[,i], main=paste(names(train[i])) , horizontal = TRUE,col=(c("blue","red")))
+    }
+```
+
+Some of the independent variables appear to have a normal distribution, while others are skewed. The third column displayed in the box plots compared each independent variable to the **target**
+response variable. 
+
+## Correlation Plot
+
+We conducted a correlation plot to check for collinearity. 
+
+```{r, echo=FALSE,message=FALSE}
+cor_mx = cor(train,use="pairwise.complete.obs", method = "pearson")
+corrplot(cor_mx, method = "color", 
+         type = "upper", order = "original", number.cex = .7,
+         addCoef.col = "black",
+         tl.col = "black", tl.srt = 90,
+         diag = TRUE)
+```
+
+
+Certain variables relate to each other differently, and some actually correlated stronger than others. If we look at the target column, we can see how the independent variables correlate with the response variable. It appears that **indus**,   **nox**, **age**, **rad**, **tax**, **ptratio**, and **lstat** have a positive correlation, whereas **zn**, **dis**, and **medv** have negative correlation.  
+
+
+# Data Preparation
+First, we will replace missing variables with the mean for that variable.
+```{r}
+for(i in 1:ncol(train)){
+  train[is.na(train[,i]), i] <- mean(train[,i], na.rm = TRUE)
+}
+```
+```{r}
+library(Amelia)
+missmap(train, main = "Missing vs Observed Values")
+
+```
+
+Next, we look to split our data between a training set (train) and a test data set (test). We’ll use a 70-30 split between train and test, respectively.
+```{r}
+
+set.seed(42)
+index <- createDataPartition(train$target, p = .7, list = FALSE, times = 1)
+train0 <- train[index,]
+test <- train[-index,]
+
+```
+
+
+# Build Models
+We will build  different models to see which one yields the best performance. In the first model below, we use all original variables. We start by applying occam’s razor and create a baseline model with one predictor.
+As for the model try adding every other variable, to build a full type model where  we can work backwards and eliminate non-significant predictors. 
+We can see that many variablesare not statistically significant. 
+```{r}
+
+model2 <- glm(target ~ .,family = binomial (link="logit"),data=train0)
+summary(model2)
+
+```
+
+```{r}
+test$model2 <- ifelse(predict.glm(model2, test,"response") < 0.5, 0, 1)
+matrix <- confusionMatrix(factor(test$model2), factor(test$target),"1")
+results <- tibble(model = "model2",
+                                predictors = 12,F1 = matrix$byClass[7],
+                                deviance=model2$deviance, 
+                                r2 = 1-model2$deviance/model2$null.deviance,
+                                aic=model2$aic)
+matrix
+```
+```{r}
+anova(model2, test="Chisq")
+
+```
+
+
+
+While no exact equivalent to the R2 of linear regression exists, the McFadden R2 index can be used to assess the model fit.
+```{r}
+library(pscl)
+pR2(model2)
+```
+
+```{r}
+fitted.results <- predict(model2,newdata=test,type='response')
+fitted.results <- ifelse(fitted.results > 0.5,1,0)
+misClasificError <- mean(fitted.results != test$target)
+print(paste('Accuracy',1-misClasificError))
+
+```
+
+
+```{r}
+model3 <- glm(target ~ . -tax -rm -chas - age -zn -indus, 
+              family = binomial(link = "logit"), 
+              train0)
+summary(model3)
+```
+
+
+```{r}
+test$model3 <- ifelse(predict.glm(model3, test,"response") < 0.5, 0, 1)
+matrix <- confusionMatrix(factor(test$model3), factor(test$target),"1")
+results <- rbind(results,tibble(model = "model3",
+                                predictors = 6,F1 = matrix$byClass[7],
+                                deviance=model3$deviance, 
+                                r2 = 1-model3$deviance/model3$null.deviance,
+                                aic=model3$aic))
+matrix
+```
+ Now we are using anova()function on the model to analyze the table of deviance.
+```{r}
+anova(model3, test="Chisq")
+
+```
+```{r}
+
+pR2(model3)
+```
+```{r}
+fitted.results <- predict(model3,newdata=test,type='response')
+fitted.results <- ifelse(fitted.results > 0.5,1,0)
+misClasificError <- mean(fitted.results != test$target)
+print(paste('Accuracy',1-misClasificError))
+
+```
+
+### Model Selection
+
+So we can see that model2 has much better accuracy with 0.9064.
+A a last step , we are going to plot the ROC curve and calculate the AUC (area under the curve) which are typical performance measurements for a binary classifier. As a rule of thumb, a model with good predictive ability should have an AUC closer to 1 (1 is ideal) than to 0.5.
+
+```{r}
+library(ROCR)
+p <- predict(model3, newdata=test, type="response")
+pr <- prediction(p, test$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+```
+```{r}
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+```
