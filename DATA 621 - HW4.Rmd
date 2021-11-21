@@ -1,0 +1,488 @@
+---
+title: "Data621-Hw4"
+author: "Dominika Markowska-Desvallons"
+date: "11/20/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## DATA 621 Homework 4
+#### Crithical Thinking Group 3 - Dominika Markowska-Desvallons and Shana Green 
+
+### Overview
+In this homework assignment, you will explore, analyze and model a data set containing approximately 8000
+records representing a customer at an auto insurance company. Each record has two response variables. The
+first response variable, TARGET_FLAG, is a 1 or a 0. A “1” means that the person was in a car crash. A zero
+means that the person was not in a car crash. The second response variable is TARGET_AMT. This value is zero
+if the person did not crash their car. But if they did crash their car, this number will be a value greater than zero.
+Your objective is to build multiple linear regression and binary logistic regression models on the training data
+to predict the probability that a person will crash their car and also the amount of money it will cost if the person
+does crash their car. You can only use the variables given to you (or variables that you derive from the variables
+provided).
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(e1071)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(corrplot)
+library(FactoMineR)
+library(VIF)
+library(knitr)
+library(kableExtra)
+library(Hmisc)
+library(pROC)
+library(binr)
+```
+
+
+## Data Exploration
+
+The dataset consists of 26 variables and 8161 observations with AGE, YOJ, and CAR_AGE variables containing some missing values. As described before, TARGET_FLAG and TARGET_AMT are our response variables. Also, 13 of the variables have discrete values and the rest of the variables are continuous. 
+
+
+
+```{r}
+train <-read.csv("https://raw.githubusercontent.com/hrensimin05/Data621/main/insurance_training_data.csv")
+
+test <- read.csv("https://raw.githubusercontent.com/hrensimin05/Data621/main/insurance-evaluation-data%20(2).csv")
+```
+
+```{r}
+
+dim(train)
+
+```
+
+```{r}
+str(train)
+```
+
+```{r}
+
+#cleaning data
+sign <-function(input) {
+  out <- sub("\\$", "", input)
+  out <- as.numeric(sub(",", "", out))
+  return(out)
+}
+
+sign2<-function(input) {
+  out <- sub(" ", "_", input)
+  return(out)
+}
+
+
+
+train<-as.tbl(train) %>% 
+  mutate_at(c("INCOME","HOME_VAL","BLUEBOOK","OLDCLAIM"),
+            sign) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            sign2) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            as.factor) %>% 
+  mutate(TARGET_FLAG = as.factor(TARGET_FLAG))
+```
+
+
+
+```{r}
+summary(train)
+```
+
+```{r}
+
+sapply(train, function(x) sum(is.na(x))) %>% kable() %>% kable_styling()
+```
+#### Visulization 
+Let’s first look at the density plots of the numerical variables to view their shapes and distributions:
+```{r}
+train_num<-select_if(train, is.numeric)
+train_num%>%
+  keep(is.numeric) %>%                    
+  gather() %>%                             
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free") +  
+    geom_density() 
+
+
+```
+
+## Data Preparation
+##### Missing values
+There are 970 rows of data with NA values. We are going to replacing them with their median values. 
+
+```{r}
+train$AGE[is.na(train$AGE)] <- mean(train$AGE, na.rm=TRUE)
+train$YOJ[is.na(train$YOJ)] <- mean(train$YOJ, na.rm=TRUE)
+train$HOME_VAL[is.na(train$HOME_VAL)] <- mean(train$HOME_VAL, na.rm=TRUE)
+train$CAR_AGE[is.na(train$CAR_AGE)] <- mean(train$CAR_AGE, na.rm=TRUE)
+train$INCOME[is.na(train$INCOME)] <- mean(train$INCOME, na.rm=TRUE)
+
+
+
+train <- train[complete.cases(train),]
+train2<-train
+
+
+#transform data using log
+
+train$HOMEKIDS <- log(train$HOMEKIDS+1)
+train$MVR_PTS <- log(train$MVR_PTS+1)
+train$OLDCLAIM <- log(train$OLDCLAIM+1)
+train$TIF <- log(train$TIF+1)
+train$KIDSDRIV <- log(train$KIDSDRIV+1)
+train$CLM_FREQ <- log(train$CLM_FREQ+1)
+
+
+
+
+train <- train[, !(colnames(train) %in% c("INDEX"))]
+
+
+ntrain <- dplyr::select_if(train, is.numeric)
+
+rcorr(as.matrix(ntrain))
+
+
+```
+
+
+```{r}
+corrplot(cor(ntrain), method="square")
+
+```
+```{r}
+cor.test(ntrain$HOMEKIDS,ntrain$AGE,method="pearson")
+
+```
+```{r}
+train2<-train
+```
+
+
+
+## Build Models
+
+
+```{r}
+
+model1 <- glm(formula = TARGET_FLAG ~ . - TARGET_AMT, data=train, family = "binomial" (link="logit"))
+
+summary(model1)
+```
+
+```{r}
+exp(model1$coefficients)
+```
+```{r}
+lgsca <- mean(dlogis(predict(model1, type = "link")))
+lgsca * coef(model1)
+```
+
+```{r}
+confint.default(model1)
+```
+
+```{r}
+pred_model1 <- predict(model1, type="response")
+train2$pred1 <- predict(model1, type="response")
+summary(pred_model1)
+```
+
+```{r}
+table(true = train$TARGET_FLAG, pred = round(fitted(model1)))
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(model1)
+```
+
+```{r}
+data.frame(train2$pred1) %>%
+    ggplot(aes(x = train2.pred1)) + 
+    geom_histogram(bins = 50, fill = 'red') +
+    labs(title = 'Predictions') +
+    theme_bw()
+
+```
+
+```{r}
+plot.roc(train$TARGET_FLAG, train2$pred1)
+
+```
+
+
+```{r}
+s_vars <- data.frame(summary(model1)$coef[summary(model1)$coef[,4] <= .05, 4])
+s_vars <- add_rownames(s_vars, "vars")
+```
+
+
+```{r}
+
+lt<-dplyr::pull(s_vars, vars)
+
+lt<-c("KIDSDRIV","INCOME","PARENT1","HOME_VAL","MSTATUS","EDUCATION","JOB","TRAVTIME","CAR_USE","BLUEBOOK","TIF","CAR_TYPE","CLM_FREQ","REVOKED","MVR_PTS","URBANICITY")
+
+x <- match(lt, names(train))
+modeling2<- cbind(train[,x], train2['TARGET_FLAG'])
+```
+
+
+```{r}
+model2 <- glm(TARGET_FLAG ~ ., data=modeling2, family = "binomial" (link="logit"))
+summary(model2)
+```
+
+```{r}
+exp(model2$coefficients)
+```
+
+```{r}
+log2 <- mean(dlogis(predict(model2, type = "link")))
+log2 * coef(model2)
+```
+
+```{r}
+pred_log2 <- predict(model2, type="response")
+train2$pred2 <- predict(model2, type="response")
+
+summary(pred_log2)
+```
+
+```{r}
+table(true = train$TARGET_FLAG, pred = round(fitted(model2)))
+```
+
+```{r}
+par(mfrow=c(2,2))
+```
+
+```{r}
+plot(model2)
+```
+
+```{r}
+data.frame(train2$pred2) %>%
+    ggplot(aes(x = train2.pred2)) + 
+    geom_histogram(bins = 50, fill = 'blue') +
+    labs(title = 'Predictions') +
+    theme_bw()
+```
+
+```{r}
+plot.roc(train$TARGET_FLAG, train2$pred2)
+```
+
+```{r}
+model3 <- glm(TARGET_FLAG ~ KIDSDRIV + INCOME + HOME_VAL + TRAVTIME, data=train, family = "binomial" (link="logit"))
+summary(model3)
+```
+
+```{r}
+exp(model3$coefficients)
+```
+
+```{r}
+log3 <- predict(model3, type="response")
+train2$pred3 <- predict(model3, type="response")
+summary(log3)
+```
+
+```{r}
+table(true = train$TARGET_FLAG, pred = round(fitted(model3)))
+```
+
+```{r}
+par(mfrow=c(2,2))
+```
+```{r}
+plot(model3)
+```
+```{r}
+data.frame(train2$pred3) %>%
+    ggplot(aes(x = train2.pred3)) + 
+    geom_histogram(bins = 50, fill = 'green') +
+    labs(title = 'Predictions') +
+    theme_bw()
+```
+```{r}
+plot.roc(train$TARGET_FLAG, train2$pred3)
+
+log3sc <- mean(dlogis(predict(model3, type = "link")))
+log3sc * coef(model3)
+```
+
+```{r}
+round(lgsca * coef(model1),2)
+```
+```{r}
+round(log2 * coef(model2),2)
+```
+
+```{r}
+round(log3sc * coef(model3),2)
+```
+
+
+### Build Models GENERAL TARGET_AMT
+
+
+```{r}
+mdl <- lm(TARGET_AMT ~ ., data=train)
+summary(mdl)
+```
+
+
+```{r}
+
+par(mfrow=c(1,2))
+plot(mdl$residuals ~ mdl$fitted.values)
+plot(mdl$fitted.values,train$TARGET_AMT)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(mdl)
+```
+
+
+
+```{r}
+s_vars <- data.frame(summary(mdl)$coef[summary(mdl)$coef[,4] <= .05, 4])
+s_vars <- add_rownames(s_vars, "vars")
+
+```
+
+```{r}
+list<-dplyr::pull(s_vars, vars)
+list<-c("TARGET_FLAG","BLUEBOOK","REVOKED","MVR_PTS","CAR_AGE")
+x <- match(list, names(train))
+train2 <- cbind(train[,x], train['TARGET_AMT'])
+
+```
+
+
+
+```{r}
+
+mdl2<-lm(TARGET_AMT ~ ., data=train2)
+summary(mdl2)
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(mdl2$residuals ~ mdl2$fitted.values)
+plot(mdl2$fitted.values,train$TARGET_AMT)
+par(mfrow=c(2,2))
+```
+
+```{r}
+plot(mdl2)
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(mdl2$residuals ~ mdl2$fitted.values, main="New Reduced Variables Model")
+abline(h = 0)
+plot(mdl$residuals ~ mdl$fitted.values, main="Orignal Model")
+abline(h = 0)
+```
+
+
+```{r}
+
+
+mdl3<-lm(TARGET_AMT ~ KIDSDRIV + INCOME + HOME_VAL + TRAVTIME, data=train)
+summary(mdl3)
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(mdl3$residuals ~ mdl3$fitted.values)
+plot(mdl3$fitted.values,train$TARGET_AMT)
+```
+```{r}
+par(mfrow=c(2,2))
+plot(mdl3)
+
+```
+
+### Select Models
+
+```{r}
+
+
+dim(test)
+```
+
+```{r}
+test$TARGET_AMT <- 0
+test$TARGET_FLAG <- 0
+
+test <- as.tbl(test) %>% 
+  mutate_at(c("INCOME","HOME_VAL","BLUEBOOK","OLDCLAIM"),
+            sign) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            sign2) %>% 
+  mutate_at(c("EDUCATION","JOB","CAR_TYPE","URBANICITY"),
+            as.factor) %>% 
+  mutate(TARGET_FLAG = as.factor(TARGET_FLAG))
+```
+
+```{r}
+test$HOMEKIDS <- log(test$HOMEKIDS+1)
+test$MVR_PTS <- log(test$MVR_PTS+1)
+test$OLDCLAIM <- log(test$OLDCLAIM+1)
+test$TIF <- log(test$TIF+1)
+test$KIDSDRIV <- log(test$KIDSDRIV+1)
+test$CLM_FREQ <- log(test$CLM_FREQ+1)
+
+
+
+test$AGE[is.na(test$AGE)] <- mean(test$AGE, na.rm=TRUE)
+test$YOJ[is.na(test$YOJ)] <- mean(test$YOJ, na.rm=TRUE)
+test$HOME_VAL[is.na(test$HOME_VAL)] <- mean(test$HOME_VAL, na.rm=TRUE)
+test$CAR_AGE[is.na(test$CAR_AGE)] <- mean(test$CAR_AGE, na.rm=TRUE)
+
+test$INCOME[is.na(test$INCOME)] <- mean(test$INCOME, na.rm=TRUE)
+
+
+
+test <- test[, !(colnames(test) %in% c("INDEX"))]
+
+
+TARGET_FLAG <- predict(model1, newdata = test, type="response")
+
+```
+
+```{r}
+nums <- ifelse(TARGET_FLAG > 0.5, 1, 0)
+pred <- factor(nums, levels=c(0, 1))
+summary(pred)
+```
+
+```{r}
+rbind(round(summary(pred_model1),4), round(summary(TARGET_FLAG),4)) %>% kable()
+```
+```{r}
+test$TARGET_FLAG <- as.factor(test$TARGET_FLAG)
+```
+
+```{r}
+test2 <- test[, !(colnames(test) %in% c("TARGET_FLAG"))]
+
+
+TARGET_AMT<- predict(mdl, newdata = test, interval='confidence') 
+summary(TARGET_AMT)
+```
+
+```{r}
+summary(mdl)
+```
